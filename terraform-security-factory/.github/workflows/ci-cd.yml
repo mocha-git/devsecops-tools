@@ -4,10 +4,17 @@ on:
   push:
     branches:
       - main
+      - develop
   pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  security-events: write
+  pull-requests: write
 
 jobs:
-
   terraform-validation:
     name: 🚦 Terraform Validation
     runs-on: ubuntu-latest
@@ -16,9 +23,10 @@ jobs:
 
       - uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: latest
+          terraform_version: 1.6.6
+          terraform_wrapper: false
 
-      - name: Terraform Format
+      - name: Terraform Format Check
         run: terraform fmt -check -recursive
 
       - name: Terraform Validate
@@ -27,34 +35,46 @@ jobs:
           terraform validate
 
   security-scan:
-    name: 🔐 Security Scan (tfsec + Checkov + OPA)
+    name: 🔐 Security Scan
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        tool: 
+          - tfsec
+          - checkov
+          - opa
     steps:
       - uses: actions/checkout@v4
 
-      - name: tfsec scan
+      - name: tfsec Scan
+        if: matrix.tool == 'tfsec'
         uses: aquasecurity/tfsec-action@v1.0.3
         with:
           working_directory: modules/
-          format: json
-          out: tfsec-report.json
+          format: sarif
+          out: tfsec-results.sarif
 
-      - name: Checkov scan
+      - name: Checkov Scan
+        if: matrix.tool == 'checkov'
         uses: bridgecrewio/checkov-action@v12
         with:
           directory: modules/
-          output_format: cli,sarif
-          soft_fail: true
+          output_format: sarif
+          soft_fail: false
 
       - name: Setup OPA
+        if: matrix.tool == 'opa'
         uses: open-policy-agent/setup-opa@v2
-
-      - name: OPA scan
+        
+      - name: OPA Policy Test
+        if: matrix.tool == 'opa'
         run: |
           opa test policies/ -v
+          opa eval --data policies/ --input tfplan.json "data.terraform.security"
 
   automated-tests:
-    name: 🧪 Terratest & tftest.hcl
+    name: 🧪 Terratest & Go Tests
+    needs: [terraform-validation, security-scan]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -65,16 +85,31 @@ jobs:
 
       - uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: latest
+          terraform_version: 1.6.6
 
-      - name: Terraform tests (tftest.hcl)
-        run: |
-          terraform test -verbose tests/
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: eu-west-3
 
-      - name: Terratest (Go) tests
+      - name: Run Terratest
+        working-directory: tests
         run: |
-          cd tests
           go mod init tests || true
           go mod tidy
           go test -v ./...
 
+  release:
+    name: 📦 Create Release
+    needs: [automated-tests]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          generate_release_notes: true

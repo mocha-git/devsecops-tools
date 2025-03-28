@@ -2,6 +2,8 @@ package tests
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -10,27 +12,74 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestSecureS3(t *testing.T) {
+func TestSecureS3BucketCreation(t *testing.T) {
 	t.Parallel()
 
-	uniqueID := fmt.Sprintf("secure-bucket-%s-%d", random.UniqueId(), time.Now().Unix())
+	// Get the absolute path to the test directory
+	testDir, err := os.Getwd()
+	assert.NoError(t, err, "Failed to get current directory")
 
-	terraformOptions := &terraform.Options{
-		TerraformDir: "../deployments/minimal-setup",
-		Vars: map[string]interface{}{
-			"bucket_name": uniqueID,
-		},
-		EnvVars: map[string]string{
-			"AWS_ACCESS_KEY_ID":     "<ton_access_key>",
-			"AWS_SECRET_ACCESS_KEY": "<ton_secret_key>",
-			"AWS_DEFAULT_REGION":    "eu-west-1",
-		},
+	// Construct the path to the deployment directory
+	deploymentDir := filepath.Join(testDir, "..", "deployments", "minimal-setup")
+
+	testCases := []struct {
+		name        string
+		environment string
+	}{
+		{"Production Bucket", "production"},
+		{"Staging Bucket", "staging"},
 	}
 
-	defer terraform.Destroy(t, terraformOptions)
-	terraform.InitAndApply(t, terraformOptions)
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			uniqueID := fmt.Sprintf("secure-bucket-%s-%d", 
+				random.UniqueId(), 
+				time.Now().Unix(),
+			)
 
-	bucketID := terraform.Output(t, terraformOptions, "bucket_id")
-	assert.Contains(t, bucketID, uniqueID)
+			terraformOptions := &terraform.Options{
+				// Use the path to the deployment directory
+				TerraformDir: deploymentDir,
+				
+				// Ensure terraform init is run
+				NoColor: true,
+				
+				Vars: map[string]interface{}{
+					"bucket_name":   uniqueID,
+					"environment":   tc.environment,
+					"region":        "eu-west-3",
+				},
+				
+				// Optional: set environment variables if needed
+				EnvVars: map[string]string{
+					"AWS_REGION": "eu-west-3",
+				},
+			}
+
+			// Ensure cleanup even if test fails
+			defer func() {
+				// Attempt to destroy resources, ignore errors
+				terraform.Destroy(t, terraformOptions)
+			}()
+
+			// Run terraform init
+			terraform.Init(t, terraformOptions)
+
+			// Apply the terraform configuration
+			terraform.Apply(t, terraformOptions)
+
+			// Verify bucket ID
+			bucketID := terraform.Output(t, terraformOptions, "bucket_id")
+			assert.Contains(t, bucketID, uniqueID, "Bucket ID should contain unique identifier")
+			
+			// Additional assertions can be added here
+			assert.NotEmpty(t, bucketID, "Bucket ID should not be empty")
+		})
+	}
 }
 
+// Additional test functions can be added here
+func TestBucketSecurityFeatures(t *testing.T) {
+	// Placeholder for additional security feature tests
+	t.Skip("Implement detailed security feature tests")
+}
