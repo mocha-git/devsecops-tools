@@ -1,0 +1,80 @@
+name: Terraform Security Factory CI/CD
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+
+  terraform-validation:
+    name: 🚦 Terraform Validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: latest
+
+      - name: Terraform Format
+        run: terraform fmt -check -recursive
+
+      - name: Terraform Validate
+        run: |
+          terraform init -backend=false
+          terraform validate
+
+  security-scan:
+    name: 🔐 Security Scan (tfsec + Checkov + OPA)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: tfsec scan
+        uses: aquasecurity/tfsec-action@v1.0.3
+        with:
+          working_directory: modules/
+          format: json
+          out: tfsec-report.json
+
+      - name: Checkov scan
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: modules/
+          output_format: cli,sarif
+          soft_fail: true
+
+      - name: Setup OPA
+        uses: open-policy-agent/setup-opa@v2
+
+      - name: OPA scan
+        run: |
+          opa test policies/ -v
+
+  automated-tests:
+    name: 🧪 Terratest & tftest.hcl
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22.x'
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: latest
+
+      - name: Terraform tests (tftest.hcl)
+        run: |
+          terraform test -verbose tests/
+
+      - name: Terratest (Go) tests
+        run: |
+          cd tests
+          go mod init tests || true
+          go mod tidy
+          go test -v ./...
+

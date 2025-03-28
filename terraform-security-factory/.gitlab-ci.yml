@@ -1,0 +1,28 @@
+stages:
+  - validate
+  - security
+  - test
+
+validate:
+  image: hashicorp/terraform:latest
+  stage: validate
+  script:
+    - terraform fmt -check -recursive
+    - terraform validate
+
+security:
+  image: aquasec/tfsec:latest
+  stage: security
+  script:
+    - tfsec ./modules
+
+  artifacts:
+    paths: [tfsec-results.json]
+
+test:
+  image: golang:latest
+  stage: test
+  script:
+    - cd tests && go mod init tests && go mod tidy
+    - go test -v ./...
+
