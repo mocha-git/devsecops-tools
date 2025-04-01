@@ -1,0 +1,25 @@
+adminUser: 
+adminPassword: 
+
+persistence:
+  enabled: true
+  size: 10Gi
+
+datasources:
+  datasources.yaml:
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        url: http://my-prometheus-server.observability.svc.cluster.local
+        access: proxy
+        isDefault: true
+      - name: Loki
+        type: loki
+        url: http://my-loki.observability.svc.cluster.local:3100
+        access: proxy
+        isDefault: false
+
+service:
+  type: ClusterIP
+

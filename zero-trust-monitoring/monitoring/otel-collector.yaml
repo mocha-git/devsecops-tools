@@ -1,0 +1,76 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otel-collector
+  namespace: observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: otel-collector
+  template:
+    metadata:
+      labels:
+        app: otel-collector
+    spec:
+      containers:
+      - name: otel-collector
+        image: otel/opentelemetry-collector:latest
+        ports:
+        - containerPort: 4317  # OTLP gRPC
+        - containerPort: 55681 # OTLP HTTP
+        volumeMounts:
+        - name: config
+          mountPath: /etc/otel-config
+        command:
+          - "/otelcol"
+          - "--config=/etc/otel-config/config.yaml"
+      volumes:
+      - name: config
+        configMap:
+          name: otel-collector-cm
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-collector-cm
+  namespace: observability
+data:
+  config.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+          http:
+
+    processors:
+      batch:
+      resource:
+        attributes:
+          - key: service.environment
+            value: "production"
+            action: upsert
+
+    exporters:
+      prometheus:
+        endpoint: "0.0.0.0:8889"  
+      logging:
+        logLevel: info
+      loki:
+        endpoint: "http://my-loki.observability.svc.cluster.local:3100/loki/api/v1/push"
+
+    service:
+      pipelines:
+        metrics:
+          receivers: [otlp]
+          processors: [batch, resource]
+          exporters: [prometheus]
+        logs:
+          receivers: [otlp]
+          processors: [batch, resource]
+          exporters: [loki, logging]
+        traces:
+          receivers: [otlp]
+          processors: [batch, resource]
+          exporters: [logging]
+

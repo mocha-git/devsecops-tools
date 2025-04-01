@@ -1,0 +1,37 @@
+loki:
+  config:
+    ingester:
+      lifecycler:
+        ring:
+          kvstore:
+            store: inmemory
+    schema_config:
+      configs:
+        - from: 2022-01-01
+          store: boltdb-shipper
+          object_store: filesystem
+          schema: v11
+          index:
+            prefix: loki_index_
+          chunks:
+            prefix: loki_chunks_
+    storage_config:
+      boltdb_shipper:
+        active_index_directory: /data/loki/index
+        shared_store: filesystem
+        cache_location: /data/loki/cache
+      filesystem:
+        directory: /data/loki/chunks
+
+persistence:
+  enabled: true
+  size: 20Gi
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
